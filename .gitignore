@@ -1,0 +1,7 @@
+.python-version
+__pycache__
+checkpoints
+lightning_logs
+
+data/*
+!data/.gitkeep
