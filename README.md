@@ -1,9 +1,10 @@
-# Unofficial Vocoder Implements
+# Unofficial Vocoder Implementations
 
-## Implementations
+## Implemented Vocoder List
 - HiFi-GAN
 - iSTFTNet
 - MISRNet
+- and more
 
 ## Exporting
 
