@@ -7,3 +7,6 @@ data/*
 !data/.gitkeep
 
 reconstructed.wav
+
+pretrained/*
+!pretrained/.gitkeep
