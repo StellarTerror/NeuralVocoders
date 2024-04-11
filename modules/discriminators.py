@@ -2,8 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from .generators import get_padding
-
-
+        
 class DiscriminatorP(torch.nn.Module):
     def __init__(self, period, kernel_size=5, stride=3):
         super(DiscriminatorP, self).__init__()
@@ -31,7 +30,7 @@ class DiscriminatorP(torch.nn.Module):
 
         for l in self.convs:
             x = l(x)
-            x = F.relu(x)
+            x = F.mish(x)
             fmap.append(x)
         x = self.conv_post(x)
         fmap.append(x)
@@ -85,7 +84,7 @@ class DiscriminatorS(torch.nn.Module):
         fmap = []
         for l in self.convs:
             x = l(x)
-            x = F.relu(x)
+            x = F.mish(x)
             fmap.append(x)
         x = self.conv_post(x)
         fmap.append(x)

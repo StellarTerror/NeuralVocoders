@@ -11,10 +11,10 @@ class STFT(torch.nn.Module):
         self.window = torch.from_numpy(get_window(window, win_length, fftbins=True).astype(np.float32))
 
     def forward(self, input_data):
-        self.window = self.window.to(input_data.device)
+        window = self.window.to(input_data.device)
         forward_transform = torch.stft(
             input_data,
-            self.filter_length, self.hop_length, self.win_length, window=self.window,
+            self.filter_length, self.hop_length, self.win_length, window=window,
             return_complex=True)
 
         return torch.abs(forward_transform), torch.angle(forward_transform)
@@ -29,9 +29,9 @@ class ISTFT(torch.nn.Module):
         self.window = torch.from_numpy(get_window(window, win_length, fftbins=True).astype(np.float32))
     
     def forward(self, magnitude, phase):
-        self.window = self.window.to(magnitude.device)
+        window = self.window.to(magnitude.device)
         inverse_transform = torch.istft(
             magnitude * torch.exp(phase * 1j),
-            self.filter_length, self.hop_length, self.win_length, window=self.window)
+            self.filter_length, self.hop_length, self.win_length, window=window)
 
-        return inverse_transform.unsqueeze(-2)  # unsqueeze to stay consistent with conv_transpose1d implementation
+        return inverse_transform.unsqueeze(-2)

@@ -5,3 +5,5 @@ lightning_logs
 
 data/*
 !data/.gitkeep
+
+reconstructed.wav

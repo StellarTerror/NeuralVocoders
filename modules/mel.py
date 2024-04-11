@@ -1,14 +1,11 @@
 import torch
 import torch.nn as nn
-from librosa.filters import mel
-import numpy as np
-
-from .stft import STFT
+from librosa.filters import mel as librosa_mel_fn
 
 class Mel(nn.Module):
     def __init__(self, filter_length, n_mels, sampling_rate, hop_length, win_length, fmin, fmax, center=False):
         super(Mel, self).__init__()
-        from librosa.filters import mel as librosa_mel_fn
+        
         self.mel_basis = torch.from_numpy(librosa_mel_fn(sr = sampling_rate, n_fft=filter_length, n_mels=n_mels, fmin=fmin, fmax=fmax, htk=False, norm='slaney')).float()
         self.hann_window = torch.hann_window(win_length)
 

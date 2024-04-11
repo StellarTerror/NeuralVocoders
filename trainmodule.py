@@ -13,25 +13,27 @@ import os, shutil
 import matplotlib.pyplot as plt
 
 class Vocoder(pl.LightningModule):
-    def __init__(self, settings):
+    def __init__(self, config):
         super(Vocoder, self).__init__()
-        self.settings = settings
-        self.data_option = self.settings["data_option"]
-        self.learning_option = self.settings["learning_option"]
-        self.model_option = self.settings["model"]
+        self.config = config
+        self.data_config = self.config["data_option"]
+        self.learning_config = self.config["learning_option"]
+        self.model_config = self.config["model"]
 
-        self.generator = Generator(self.model_option)
+        self.generator = Generator(self.config)
         self.mpd = MultiPeriodDiscriminator()
         self.msd = MultiScaleDiscriminator()
 
-        self.mel = Mel(filter_length=self.data_option["fft_length"], sampling_rate=self.data_option["sample_rate"], n_mels=self.data_option["num_mels"], hop_length=self.data_option["hop_length"], win_length=self.data_option["win_length"], fmin=self.data_option["fmin"], fmax=self.data_option["fmax"])
+        self.mpd = torch.compile(self.mpd, mode="reduce-overhead")
+        self.msd = torch.compile(self.msd, mode="reduce-overhead")
+
+        self.mel = Mel(filter_length=self.data_config["fft_length"], sampling_rate=self.data_config["sample_rate"], n_mels=self.data_config["num_mels"], hop_length=self.data_config["hop_length"], win_length=self.data_config["win_length"], fmin=self.data_config["fmin"], fmax=self.data_config["fmax"])
         for param in self.mel.parameters():
             param.requires_grad = False
 
         
-        if os.path.exists("checkpoints"):
-            shutil.rmtree("checkpoints")
-        os.makedirs("checkpoints", exist_ok=True)
+        if not os.path.exists("checkpoints"):
+            os.makedirs("checkpoints", exist_ok=True)
 
         self.automatic_optimization = False
 
@@ -92,9 +94,9 @@ class Vocoder(pl.LightningModule):
         for lrschedule in lrschedules:
             lrschedule.step()
 
-        if os.path.exists(f"checkpoints/generator_{self.current_epoch-1}.pt"):
-            os.remove(f"checkpoints/generator_{self.current_epoch-1}.pt")
-        self.generator.save(f"checkpoints/generator_{self.current_epoch}.pt")
+        if os.path.exists(f"checkpoints/{self.model_config['name']}_{self.current_epoch-1}.pt"):
+            os.remove(f"checkpoints/{self.model_config['name']}_{self.current_epoch-1}.pt")
+        self.generator.save(f"checkpoints/{self.model_config['name']}_{self.current_epoch}.pt")
 
     def on_validation_epoch_start(self) -> None:
         self.orignal = []
@@ -120,8 +122,8 @@ class Vocoder(pl.LightningModule):
         if self.trainer.sanity_checking:
             return
         for i in range(5):
-            self.logger.experiment.add_audio(f"Original/{i}", self.orignal[i], self.current_epoch, sample_rate=self.data_option["sample_rate"])
-            self.logger.experiment.add_audio(f"Reconstructed/{i}", self.recon[i], self.current_epoch, sample_rate=self.data_option["sample_rate"])
+            self.logger.experiment.add_audio(f"Original/{i}", self.orignal[i], self.current_epoch, sample_rate=self.data_config["sample_rate"])
+            self.logger.experiment.add_audio(f"Reconstructed/{i}", self.recon[i], self.current_epoch, sample_rate=self.data_config["sample_rate"])
 
             y_orig_mel = self.mel(self.orignal[i])
             y_recon_mel = self.mel(self.recon[i])
@@ -137,15 +139,13 @@ class Vocoder(pl.LightningModule):
             ax.set_title("Reconstructed Mel-Spectrogram")
             self.logger.experiment.add_figure(f"Reconstructed Mel-Spectrogram/{i}", fig, self.current_epoch)
             plt.close(fig)
-            
+
         self.orignal.clear()
         self.recon.clear()
-        
 
-    
     def configure_optimizers(self):
-        g_opt = torch.optim.Adam(self.generator.parameters(), lr=self.learning_option["lr"], betas=(self.learning_option["betas"][0], self.learning_option["betas"][1]))
-        d_opt = torch.optim.Adam(chain(self.msd.parameters(), self.mpd.parameters()), lr=self.learning_option["lr"], betas=(self.learning_option["betas"][0], self.learning_option["betas"][1]))
-        g_scheduler = torch.optim.lr_scheduler.ExponentialLR(g_opt, self.learning_option["lr_decay"] )
-        d_scheduler = torch.optim.lr_scheduler.ExponentialLR(d_opt, self.learning_option["lr_decay"] )
+        g_opt = torch.optim.AdamW(self.generator.parameters(), self.learning_config["lr"], betas=(self.learning_config["betas"][0], self.learning_config["betas"][1]))
+        d_opt = torch.optim.AdamW(chain(self.msd.parameters(), self.mpd.parameters()), self.learning_config["lr"], betas=(self.learning_config["betas"][0], self.learning_config["betas"][1]))
+        g_scheduler = torch.optim.lr_scheduler.ExponentialLR(g_opt, gamma=self.learning_config["lr_decay"])
+        d_scheduler = torch.optim.lr_scheduler.ExponentialLR(d_opt, gamma=self.learning_config["lr_decay"])
         return [g_opt, d_opt], [g_scheduler, d_scheduler]

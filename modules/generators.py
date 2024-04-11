@@ -21,7 +21,7 @@ class MRF(nn.Module):
         blocks = []
         for i in range(len(self.resblocks)):
             x = self.resblocks[i](x)
-            x = F.relu(x)
+            x = F.mish(x)
             blocks.append(x)
         x = sum(blocks)/len(blocks)  
         return x
@@ -59,7 +59,7 @@ class ResBlock(nn.Module):
     def forward(self, x):
         resblocks = []
         for i in range(len(self.conv1s)):
-            resblocks.append(F.relu(self.conv2s[i](F.relu(self.conv1s[i](x)))))
+            resblocks.append(F.mish(self.conv2s[i](F.mish(self.conv1s[i](x)))))
         return sum(resblocks)/len(resblocks)
 
 
@@ -73,45 +73,48 @@ class Upsampler(nn.Module):
         return self.upsample(x)
 
 class Generator(nn.Module):
-    def __init__(self, settings):
+    def __init__(self, config):
         super(Generator, self).__init__()
-        model_settings = settings
-        self.upsample_num = len(model_settings["upsample_rate"])
+        model_config = config["model"]
+        self.upsample_num = len(model_config["upsample_rate"])
         
 
         self.upsampler = nn.ModuleList([
-            Upsampler(model_settings["upsample_initial_channel"]//(2**k), \
-                      model_settings["upsample_initial_channel"]//(2**(k+1)),
-                       model_settings["upsample_rate"][k], model_settings["upsample_kernel_size"][k]) for k in range(self.upsample_num)
+            Upsampler(model_config["upsample_initial_channel"]//(2**k), \
+                      model_config["upsample_initial_channel"]//(2**(k+1)),
+                       model_config["upsample_rate"][k], model_config["upsample_kernel_size"][k]) for k in range(self.upsample_num)
         ])
 
-        if model_settings["resblock_type"] == "MRF":
-            self.mrf = nn.ModuleList([MRF(model_settings["upsample_initial_channel"]//(2**(k+1)), model_settings["resblock_kernel_sizes"], model_settings["resblock_dilation_sizes"]) for k in range(self.upsample_num)])
-        elif model_settings["resblock_type"] == "MISR":
-            self.misr = nn.ModuleList([MISR(model_settings["upsample_initial_channel"]//(2**(k+1)), model_settings["resblock_kernel_sizes"], model_settings["resblock_dilation_sizes"]) for k in range(self.upsample_num)])
+        if model_config["resblock_type"] == "MRF":
+            self.mrf = nn.ModuleList([MRF(model_config["upsample_initial_channel"]//(2**(k+1)), model_config["resblock_kernel_sizes"], model_config["resblock_dilation_sizes"]) for k in range(self.upsample_num)])
+        elif model_config["resblock_type"] == "MISR":
+            self.misr = nn.ModuleList([MISR(model_config["upsample_initial_channel"]//(2**(k+1)), model_config["resblock_kernel_sizes"], model_config["resblock_dilation_sizes"]) for k in range(self.upsample_num)])
 
-        self.first_conv = nn.Conv1d(80, model_settings["upsample_initial_channel"], 7, 1, padding=3)
+        self.first_conv = nn.Conv1d(80, model_config["upsample_initial_channel"], 7, 1, padding=3)
 
 
-        if model_settings["istft_use"] == True:
-            self.n_fft = model_settings["gen_istft_n_fft"]
-            self.istft = ISTFT(filter_length=model_settings["gen_istft_n_fft"], hop_length=model_settings["gen_istft_hop_size"], win_length=model_settings["gen_istft_n_fft"], window='hann')
-            self.final_conv = nn.Conv1d(model_settings["upsample_initial_channel"]//(2 ** self.upsample_num), model_settings["gen_istft_n_fft"] + 2, 7, 1, padding=3)
+        if model_config["istft_use"] == True:
+            self.n_fft = model_config["gen_istft_n_fft"]
+            self.istft = ISTFT(filter_length=model_config["gen_istft_n_fft"], hop_length=model_config["gen_istft_hop_size"], win_length=model_config["gen_istft_n_fft"], window='hann')
+            self.final_conv = nn.Conv1d(model_config["upsample_initial_channel"]//(2 ** self.upsample_num), model_config["gen_istft_n_fft"] + 2, 7, 1, padding=3)
             self.reflection_pad = torch.nn.ReflectionPad1d((1, 0))
         else:
-            self.final_conv = nn.Conv1d(model_settings["upsample_initial_channel"] // (2 ** self.upsample_num), 1, 7, 1, padding=3)
+            self.final_conv = nn.Conv1d(model_config["upsample_initial_channel"] // (2 ** self.upsample_num), 1, 7, 1, padding=3)
             self.activation = nn.Tanh()
 
     def save(self, path):
         torch.save(self.state_dict(), path)
     
-    def load(self, path):
-        self.load_state_dict(torch.load(path))
+    @classmethod
+    def load(cls, path, config):
+        model = cls(config)
+        model.load_state_dict(torch.load(path))
+        return model
 
     def forward(self, x):
         x = self.first_conv(x)
         for k in range(len(self.upsampler)):
-            x = F.relu(x)
+            x = F.mish(x)
             x = self.upsampler[k](x)
             if hasattr(self, 'mrf'):
                 x = self.mrf[k](x)
