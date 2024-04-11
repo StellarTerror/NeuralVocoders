@@ -20,6 +20,12 @@ $ python train.py --config "config/HiFi-GAN V1.json"
 ```
 
 ## How to Test
+
 ```
 $ python recon.py --config "config/HiFi-GAN V1.json" --model "pretrained/HiFi-GAN V1.pt"
 ```
+## Pretrained Model
+
+You can download by below link
+
+[Download](https://1drv.ms/f/s!Al49QwC7fKujlyrTwJYTVdPIY0vk?e=eCOhls)
