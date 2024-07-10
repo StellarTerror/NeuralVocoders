@@ -1,4 +1,3 @@
-<!-- template of html -->
 <!DOCTYPE html>
 <html>
 <head>
@@ -6,13 +5,52 @@
 </html>
 <body>
     <h1><a href="https://github.com/Tlapesium/NeuralVocoders">Neural Vocoder</a></h1>
-    this is a neural vocoder project.<br>
-    implemented models are as follows:
+    <p>this is a neural vocoder project.<br>
+    implemented models are as follows:</p>
     <h2>HiFi-GAN</h2>
-        <details>...</details>
     <h2>iSTFTNet</h2>
-        <details>...</details>
     <h2>MISRNet</h2>
-    <details>...</details>
+
+    <h1 id="exporting">Exporting</h1>
+    <table>
+    <thead>
+    <tr>
+    <th>Export Method</th>
+    <th>HiFi-GAN</th>
+    <th>iSTFTNet</th>
+    <th>MISRNet</th>
+    </tr>
+    </thead>
+    <tbody>
+    <tr>
+    <td>onnx</td>
+    <td>⭕</td>
+    <td>❌</td>
+    <td>⭕</td>
+    </tr>
+    <tr>
+    <td>pytorch.export</td>
+    <td>⭕</td>
+    <td>❌</td>
+    <td>⭕</td>
+    </tr>
+    <tr>
+    <td>state_dict</td>
+    <td>⭕</td>
+    <td>⭕</td>
+    <td>⭕</td>
+    </tr>
+    </tbody>
+    </table>
+    <h1 id="how-to-train">How to Train</h1>
+    <pre><code>$ python train<span class="hljs-selector-class">.py</span> --config <span class="hljs-string">"config/HiFi-GAN V1.json"</span>
+    </code></pre><h1 id="how-to-test">How to Test</h1>
+    <pre><code>$ <span class="hljs-string">python </span><span class="hljs-string">recon.</span><span class="hljs-string">py </span><span class="hljs-built_in">--config</span> <span class="hljs-string">"config/HiFi-GAN V1.json"</span> <span class="hljs-built_in">--model</span> <span class="hljs-string">"pretrained/HiFi-GAN V1.pt"</span>
+    </code></pre><h1 id="pretrained-model">Pretrained Model</h1>
+    <p>You can download by below link</p>
+    <p><a href="https://1drv.ms/f/s!Al49QwC7fKujlyrTwJYTVdPIY0vk?e=eCOhls">Download</a></p>
+    <h2 id="acknowledgements">Acknowledgements</h2>
+    <p>I referred to <a href="https://github.com/jik876/hifi-gan">hifi-gan</a>, <a href="https://arxiv.org/pdf/2203.02395.pdf">iSTFTNet</a>, and <a href="https://www.isca-archive.org/interspeech_2022/kaneko22_interspeech.pdf">MISRNet</a> to implement this.</p>
+    
 </body>
 </html>
