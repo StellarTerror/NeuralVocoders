@@ -6,17 +6,17 @@ class Mel(nn.Module):
     def __init__(self, filter_length, n_mels, sampling_rate, hop_length, win_length, fmin, fmax, center=False):
         super(Mel, self).__init__()
         
-        self.mel_basis = torch.from_numpy(librosa_mel_fn(sr = sampling_rate, n_fft=filter_length, n_mels=n_mels, fmin=fmin, fmax=fmax, htk=False, norm='slaney')).float()
-        self.hann_window = torch.hann_window(win_length)
+        self.mel_basis = torch.from_numpy(librosa_mel_fn(sr = sampling_rate, n_fft=filter_length, n_mels=n_mels, fmin=fmin, fmax=fmax, htk=False, norm='slaney')).cuda().float()
+        self.hann_window = torch.hann_window(win_length).cuda().float()
 
         self.n_fft = filter_length
         self.hop_size = hop_length
         self.win_size = win_length
         self.center = center
 
+
     def forward(self, y):
-        self.hann_window = self.hann_window.to(y.device)
-        self.mel_basis = self.mel_basis.to(y.device)
+        y = y.cuda().float()
         
         if y.dim() == 1:
             y = y.unsqueeze(0)

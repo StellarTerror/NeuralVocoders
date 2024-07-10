@@ -13,7 +13,7 @@
     },
     "learning_option" : {
         "num_epochs" : 300,
-        "batch_size" : 16,
+        "batch_size" : 32,
         "lr": 0.0002,
         "betas": [0.8, 0.99],
         "lr_decay": 0.999,

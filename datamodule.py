@@ -2,11 +2,11 @@ from modules.mel import Mel
 from torch.utils.data import Dataset, DataLoader
 from lightning.pytorch import LightningDataModule
 from glob import glob
-import librosa
+import soundfile as sf
+import resampy
 import numpy as np
 
 import torch
-
 import random
 
 class VocoderDataModule(LightningDataModule):
@@ -40,13 +40,15 @@ class VocoderDataset(Dataset):
         self.audio_files = audio_files
         self.is_train = is_train
         self.data_option = settings["data_option"]
-        self.mel = Mel(filter_length=self.data_option["fft_length"], sampling_rate=self.data_option["sample_rate"], n_mels=self.data_option["num_mels"], hop_length=self.data_option["hop_length"], win_length=self.data_option["win_length"], fmin=self.data_option["fmin"], fmax=self.data_option["fmax"])
-    
+
+
     def __len__(self):
         return len(self.audio_files)
-    
+
     def __getitem__(self, idx):
-        audio, _ = librosa.load(self.audio_files[idx], sr=self.data_option["sample_rate"], mono=True)
+        audio, sr = sf.read(self.audio_files[idx])
+        if sr != self.data_option["sample_rate"]:
+            audio = resampy.resample(audio, sr, self.data_option["sample_rate"])
 
         if self.is_train:
             if audio.shape[0] >= self.data_option["segment_length"]:
@@ -56,9 +58,6 @@ class VocoderDataset(Dataset):
             else:
                 audio = np.pad(audio, (0, self.data_option["segment_length"] - audio.shape[0]), mode="constant")
         
-        audio = torch.from_numpy(audio)
+        audio = torch.from_numpy(audio).float()
 
-        mel = self.mel(audio)
-        mel_loss = self.mel(audio)
-
-        return (mel.squeeze(), audio.squeeze(), self.audio_files[idx], mel_loss.squeeze())
+        return audio, self.audio_files[idx]

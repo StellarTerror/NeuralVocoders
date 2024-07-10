@@ -13,7 +13,7 @@ def train(config):
 
     callbacks = [plc.ModelCheckpoint(), plc.RichProgressBar()]
 
-    trainer = pl.Trainer(max_epochs=config["learning_option"]["num_epochs"], callbacks=callbacks, precision="32")
+    trainer = pl.Trainer(max_epochs=config["learning_option"]["num_epochs"], callbacks=callbacks, precision="32-true")
 
     trainer.fit(train_module, data_module)
 

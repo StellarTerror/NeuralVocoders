@@ -11,6 +11,7 @@ from modules.mel import Mel
 import os, shutil
 
 import matplotlib.pyplot as plt
+from copy import deepcopy
 
 class Vocoder(pl.LightningModule):
     def __init__(self, config):
@@ -23,15 +24,15 @@ class Vocoder(pl.LightningModule):
         self.generator = Generator(self.config)
         self.mpd = MultiPeriodDiscriminator()
         self.msd = MultiScaleDiscriminator()
+        self.mel = Mel(filter_length=self.data_config["fft_length"], sampling_rate=self.data_config["sample_rate"], n_mels=self.data_config["num_mels"], hop_length=self.data_config["hop_length"], 
+                    win_length=self.data_config["win_length"], fmin=self.data_config["fmin"], fmax=self.data_config["fmax"])
+        
+        self.mpd = torch.compile(self.mpd, backend="inductor", mode="reduce-overhead")
+        self.msd = torch.compile(self.msd, backend="inductor", mode="reduce-overhead")
 
-        self.mpd = torch.compile(self.mpd, mode="reduce-overhead")
-        self.msd = torch.compile(self.msd, mode="reduce-overhead")
-
-        self.mel = Mel(filter_length=self.data_config["fft_length"], sampling_rate=self.data_config["sample_rate"], n_mels=self.data_config["num_mels"], hop_length=self.data_config["hop_length"], win_length=self.data_config["win_length"], fmin=self.data_config["fmin"], fmax=self.data_config["fmax"])
         for param in self.mel.parameters():
             param.requires_grad = False
 
-        
         if not os.path.exists("checkpoints"):
             os.makedirs("checkpoints", exist_ok=True)
 
@@ -46,7 +47,13 @@ class Vocoder(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         g_opt, d_opt = self.optimizers()
 
-        x, y, _, y_mel = batch
+        wave, _ = batch
+
+        with torch.no_grad():
+            x = self.mel(wave)
+            y = wave
+            y_mel = deepcopy(x)
+
         x = torch.autograd.Variable(x.to(self.device, non_blocking=True))
         y = torch.autograd.Variable(y.to(self.device, non_blocking=True))
         y_mel = torch.autograd.Variable(y_mel.to(self.device, non_blocking=True))
@@ -105,7 +112,14 @@ class Vocoder(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         if (len(self.recon) > 5 and len(self.orignal) > 5):
             return
-        x, y, _, y_mel = batch
+        
+        wave, _ = batch
+
+        with torch.no_grad():
+            x = self.mel(wave)
+            y = wave
+            y_mel = deepcopy(x)
+
         x = torch.autograd.Variable(x.to(self.device, non_blocking=True))
         y = torch.autograd.Variable(y.to(self.device, non_blocking=True))
         y_mel = torch.autograd.Variable(y_mel.to(self.device, non_blocking=True))
@@ -114,14 +128,13 @@ class Vocoder(pl.LightningModule):
         y_recon = self.generator(x)
         y_original = y
 
-        self.orignal.append(y_original)
-        self.recon.append(y_recon)
+        self.orignal.append(y_original.squeeze())
+        self.recon.append(y_recon.squeeze())
 
-    
     def on_validation_epoch_end(self) -> None:
         if self.trainer.sanity_checking:
             return
-        for i in range(5):
+        for i in range(len(self.orignal)):
             self.logger.experiment.add_audio(f"Original/{i}", self.orignal[i], self.current_epoch, sample_rate=self.data_config["sample_rate"])
             self.logger.experiment.add_audio(f"Reconstructed/{i}", self.recon[i], self.current_epoch, sample_rate=self.data_config["sample_rate"])
 
@@ -129,13 +142,13 @@ class Vocoder(pl.LightningModule):
             y_recon_mel = self.mel(self.recon[i])
 
             fig, ax = plt.subplots(1, 1)
-            ax.imshow(y_orig_mel[0].cpu().detach().numpy(), aspect='auto', origin='lower')
+            ax.imshow(y_orig_mel.cpu().detach().numpy(), aspect='auto', origin='lower')
             ax.set_title("Original Mel-Spectrogram")
             self.logger.experiment.add_figure(f"Original Mel-Spectrogram/{i}", fig, self.current_epoch)
             plt.close(fig)
 
             fig, ax = plt.subplots(1, 1)
-            ax.imshow(y_recon_mel[0].cpu().detach().numpy(), aspect='auto', origin='lower')
+            ax.imshow(y_recon_mel.cpu().detach().numpy(), aspect='auto', origin='lower')
             ax.set_title("Reconstructed Mel-Spectrogram")
             self.logger.experiment.add_figure(f"Reconstructed Mel-Spectrogram/{i}", fig, self.current_epoch)
             plt.close(fig)
@@ -144,8 +157,8 @@ class Vocoder(pl.LightningModule):
         self.recon.clear()
 
     def configure_optimizers(self):
-        g_opt = torch.optim.AdamW(self.generator.parameters(), self.learning_config["lr"], betas=(self.learning_config["betas"][0], self.learning_config["betas"][1]))
-        d_opt = torch.optim.AdamW(chain(self.msd.parameters(), self.mpd.parameters()), self.learning_config["lr"], betas=(self.learning_config["betas"][0], self.learning_config["betas"][1]))
+        g_opt = torch.optim.Adam(self.generator.parameters(), self.learning_config["lr"], betas=(self.learning_config["betas"][0], self.learning_config["betas"][1]))
+        d_opt = torch.optim.Adam(chain(self.msd.parameters(), self.mpd.parameters()), self.learning_config["lr"], betas=(self.learning_config["betas"][0], self.learning_config["betas"][1]))
         g_scheduler = torch.optim.lr_scheduler.ExponentialLR(g_opt, gamma=self.learning_config["lr_decay"])
         d_scheduler = torch.optim.lr_scheduler.ExponentialLR(d_opt, gamma=self.learning_config["lr_decay"])
         return [g_opt, d_opt], [g_scheduler, d_scheduler]

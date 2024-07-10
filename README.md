@@ -4,7 +4,7 @@
 - HiFi-GAN
 - iSTFTNet
 - MISRNet
-- and more
+- and your original vocoder
 
 ## Exporting
 
