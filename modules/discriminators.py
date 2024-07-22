@@ -2,6 +2,80 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from .generators import get_padding
+
+class Discriminator(torch.nn.Module):
+    def __init__(self, mel):
+        super(Discriminator, self).__init__()
+        self.mpd = MultiPeriodDiscriminator()
+        self.msd = MultiScaleDiscriminator()
+        self.msd = torch.compile(self.msd, backend="inductor", mode="reduce-overhead")
+        self.mpd = torch.compile(self.mpd, backend="inductor", mode="reduce-overhead")
+        self.mel = mel.eval()
+        for param in self.mel.parameters():
+            param.requires_grad = False
+
+    def _feature_loss(self, fmap_r, fmap_g):
+        loss = 0
+        for dr, dg in zip(fmap_r, fmap_g):
+            for rl, gl in zip(dr, dg):
+                loss += torch.mean(torch.abs(rl - gl))
+
+        return loss*2
+
+    def _discriminator_loss(self, disc_real_outputs, disc_generated_outputs):
+        loss = 0
+        r_losses = []
+        g_losses = []
+        for dr, dg in zip(disc_real_outputs, disc_generated_outputs):
+            r_loss = torch.mean((1-dr)**2)
+            g_loss = torch.mean(dg**2)
+            loss += (r_loss + g_loss)
+            r_losses.append(r_loss.item())
+            g_losses.append(g_loss.item())
+
+        return loss, r_losses, g_losses
+
+
+    def _generator_loss(self, disc_outputs):
+        loss = 0
+        gen_losses = []
+        for dg in disc_outputs:
+            l = torch.mean((1-dg)**2)
+            gen_losses.append(l)
+            loss += l
+
+        return loss, gen_losses
+    
+    def forward(self, y, y_hat, gen_train = False):
+        y_mel = self.mel(y)
+        y_mel_hat = self.mel(y_hat)
+
+        if gen_train:
+            # generator_train
+            y_df_hat_r, y_df_hat_g, y_fmap_r, y_fmap_g = self.mpd(y, y_hat)
+            y_ds_hat_r, y_ds_hat_g, y_smap_r, y_smap_g = self.msd(y, y_hat)
+
+            loss_mel = F.l1_loss(y_mel, y_mel_hat) * 45
+            loss_fm_f = self._feature_loss(y_fmap_r, y_fmap_g)
+            loss_fm_s = self._feature_loss(y_smap_r, y_smap_g)
+            loss_gen_f, _ = self._generator_loss(y_df_hat_g)
+            loss_gen_s, _ = self._generator_loss(y_ds_hat_g)
+
+            loss_gen_all = loss_gen_s + loss_gen_f + loss_fm_s + loss_fm_f + loss_mel
+
+            return loss_gen_all, loss_mel
+        
+        else:
+            # discriminator_train
+            y_df_hat_r, y_df_hat_g, _, _ = self.mpd(y, y_hat.detach())
+            y_ds_hat_r, y_ds_hat_g, _, _ = self.msd(y, y_hat.detach())
+
+            loss_disc_f, _, _ = self._discriminator_loss(y_df_hat_r, y_df_hat_g)
+            loss_disc_s, _, _ = self._discriminator_loss(y_ds_hat_r, y_ds_hat_g)
+
+            loss_disc_all = loss_disc_s + loss_disc_f
+
+            return loss_disc_all
         
 class DiscriminatorP(torch.nn.Module):
     def __init__(self, period, kernel_size=5, stride=3):
@@ -123,37 +197,3 @@ class MultiScaleDiscriminator(torch.nn.Module):
             fmap_gs.append(fmap_g)
 
         return y_d_rs, y_d_gs, fmap_rs, fmap_gs
-
-
-def feature_loss(fmap_r, fmap_g):
-    loss = 0
-    for dr, dg in zip(fmap_r, fmap_g):
-        for rl, gl in zip(dr, dg):
-            loss += torch.mean(torch.abs(rl - gl))
-
-    return loss*2
-
-
-def discriminator_loss(disc_real_outputs, disc_generated_outputs):
-    loss = 0
-    r_losses = []
-    g_losses = []
-    for dr, dg in zip(disc_real_outputs, disc_generated_outputs):
-        r_loss = torch.mean((1-dr)**2)
-        g_loss = torch.mean(dg**2)
-        loss += (r_loss + g_loss)
-        r_losses.append(r_loss.item())
-        g_losses.append(g_loss.item())
-
-    return loss, r_losses, g_losses
-
-
-def generator_loss(disc_outputs):
-    loss = 0
-    gen_losses = []
-    for dg in disc_outputs:
-        l = torch.mean((1-dg)**2)
-        gen_losses.append(l)
-        loss += l
-
-    return loss, gen_losses

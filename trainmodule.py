@@ -1,15 +1,10 @@
 from modules.generators import Generator
-from modules.discriminators import MultiPeriodDiscriminator, MultiScaleDiscriminator,\
-    discriminator_loss, feature_loss, generator_loss
+from modules.discriminators import Discriminator
 from modules.mel import Mel
 import lightning.pytorch as pl
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from itertools import chain
 from modules.mel import Mel
-import os, shutil
-
+import os
 import matplotlib.pyplot as plt
 from copy import deepcopy
 
@@ -21,15 +16,13 @@ class Vocoder(pl.LightningModule):
         self.learning_config = self.config["learning_option"]
         self.model_config = self.config["model"]
 
-        self.generator = Generator(self.config)
-        self.mpd = MultiPeriodDiscriminator()
-        self.msd = MultiScaleDiscriminator()
         self.mel = Mel(filter_length=self.data_config["fft_length"], sampling_rate=self.data_config["sample_rate"], n_mels=self.data_config["num_mels"], hop_length=self.data_config["hop_length"], 
                     win_length=self.data_config["win_length"], fmin=self.data_config["fmin"], fmax=self.data_config["fmax"])
         
-        self.mpd = torch.compile(self.mpd, backend="inductor", mode="reduce-overhead")
-        self.msd = torch.compile(self.msd, backend="inductor", mode="reduce-overhead")
+        self.generator = Generator(self.config)
+        self.discreminator = Discriminator(self.mel)
 
+        self.mel = self.mel.eval()
         for param in self.mel.parameters():
             param.requires_grad = False
 
@@ -44,7 +37,7 @@ class Vocoder(pl.LightningModule):
             y_hat = self.generator(x)
         return y_hat
     
-    def training_step(self, batch, batch_idx):
+    def training_step(self, batch, _):
         g_opt, d_opt = self.optimizers()
 
         wave, _ = batch
@@ -61,39 +54,22 @@ class Vocoder(pl.LightningModule):
 
         # Discriminator Training
         y_g_hat = self.generator(x)
-        y_g_hat_mel = self.mel(y_g_hat)
-
-        y_df_hat_r, y_df_hat_g, _, _ = self.mpd(y, y_g_hat.detach())
-        loss_disc_f, _, _ = discriminator_loss(y_df_hat_r, y_df_hat_g)
-
-        y_ds_hat_r, y_ds_hat_g, _, _ = self.msd(y, y_g_hat.detach())
-        loss_disc_s, _, _ = discriminator_loss(y_ds_hat_r, y_ds_hat_g)
-
-        loss_disc_all = loss_disc_s + loss_disc_f
+        
+        loss = self.discreminator(y, y_g_hat, gen_train=False)
 
         d_opt.zero_grad()
-        self.manual_backward(loss_disc_all)
+        self.manual_backward(loss)
         d_opt.step()
 
         # Generator Training
-        loss_mel = F.l1_loss(y_mel, y_g_hat_mel) * 45
+        y_g_hat = self.generator(x)
+        loss, loss_mel = self.discreminator(y, y_g_hat, gen_train=True)
 
-        y_df_hat_r, y_df_hat_g, fmap_f_r, fmap_f_g = self.mpd(y, y_g_hat)
-        y_ds_hat_r, y_ds_hat_g, fmap_s_r, fmap_s_g = self.msd(y, y_g_hat)
-        
-        loss_fm_f = feature_loss(fmap_f_r, fmap_f_g)
-        loss_fm_s = feature_loss(fmap_s_r, fmap_s_g)
-        loss_gen_f, _ = generator_loss(y_df_hat_g)
-        loss_gen_s, _ = generator_loss(y_ds_hat_g)
-        loss_gen_all = loss_gen_s + loss_gen_f + loss_fm_s + loss_fm_f + loss_mel
-
-        with torch.no_grad():
-            mel_error = F.l1_loss(y_mel, y_g_hat_mel).item()
-        self.log("Gen Loss Total", loss_gen_all, prog_bar=True)
-        self.log("Mel-Spec Error", mel_error, prog_bar=True)
+        self.log("Gen Loss Total", loss, prog_bar=True)
+        self.log("Mel-Spec Error", loss_mel, prog_bar=True)
 
         g_opt.zero_grad()
-        self.manual_backward(loss_gen_all)
+        self.manual_backward(loss)
         g_opt.step()
 
     def on_train_epoch_end(self) -> None:
@@ -103,13 +79,14 @@ class Vocoder(pl.LightningModule):
 
         if os.path.exists(f"checkpoints/{self.model_config['name']}_{self.current_epoch-1}.pt"):
             os.remove(f"checkpoints/{self.model_config['name']}_{self.current_epoch-1}.pt")
+
         self.generator.save(f"checkpoints/{self.model_config['name']}_{self.current_epoch}.pt")
 
     def on_validation_epoch_start(self) -> None:
         self.orignal = []
         self.recon = []
 
-    def validation_step(self, batch, batch_idx):
+    def validation_step(self, batch, _):
         if (len(self.recon) > 5 and len(self.orignal) > 5):
             return
         
@@ -157,8 +134,8 @@ class Vocoder(pl.LightningModule):
         self.recon.clear()
 
     def configure_optimizers(self):
-        g_opt = torch.optim.Adam(self.generator.parameters(), self.learning_config["lr"], betas=(self.learning_config["betas"][0], self.learning_config["betas"][1]))
-        d_opt = torch.optim.Adam(chain(self.msd.parameters(), self.mpd.parameters()), self.learning_config["lr"], betas=(self.learning_config["betas"][0], self.learning_config["betas"][1]))
+        g_opt = torch.optim.AdamW(self.generator.parameters(), self.learning_config["lr"], betas=(self.learning_config["betas"][0], self.learning_config["betas"][1]))
+        d_opt = torch.optim.AdamW(self.discreminator.parameters(), self.learning_config["lr"], betas=(self.learning_config["betas"][0], self.learning_config["betas"][1]))
         g_scheduler = torch.optim.lr_scheduler.ExponentialLR(g_opt, gamma=self.learning_config["lr_decay"])
         d_scheduler = torch.optim.lr_scheduler.ExponentialLR(d_opt, gamma=self.learning_config["lr_decay"])
         return [g_opt, d_opt], [g_scheduler, d_scheduler]
